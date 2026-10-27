@@ -272,7 +272,7 @@ function spawnZombie(){
   while(gy<WORLD_H-1 && W(gx,gy)===B.AIR) gy++;
   gy--;
   if(gy<0||gy>=WORLD_H) return;
-  zombies.push({x:gx*TS, y:gy*TS, vx:0, vy:0, w:TS*0.8, h:TS*1.6, hp:30, maxHp:30, hurtCD:0, atkCD:0});
+  zombies.push({x:gx*TS, y:gy*TS, vx:0, vy:0, w:TS*0.8, h:TS*1.6, hp:30, maxHp:30, hurtCD:0, atkCD:0, burning:false, burnT:0});
 }
 
 // ---------- 粒子 ----------
@@ -287,6 +287,9 @@ let mouseSX=0, mouseSY=0, mouseDown=false, rmouseDown=false;
 let craftOpen=false;
 let gameOver=false;
 let keys={};
+let gold = 0;            // 金币
+let dayCount = 1;        // 天数
+let wasNight = false;    // 上一帧是否为夜晚(用于检测天亮)
 
 window.addEventListener('keydown',e=>{
   keys[e.key.toLowerCase()]=true;
@@ -333,6 +336,7 @@ function init(){
   player.x=sx*TS; player.y=(sy-3)*TS;
   initInv();
   time=0; dayTime=0; gameOver=false;
+  gold=0; dayCount=1; wasNight=false;
   zombies.length=0; particles.length=0;
   computeLight();
   updateCraftMenu();
@@ -388,6 +392,21 @@ function update(dt){
 
   // 僵尸
   if(isNight && time%60===0 && zombies.length<12){ spawnZombie(); }
+  // 天亮检测: 从夜晚转入白天 -> 天数+1, 僵尸自燃
+  if(wasNight && !isNight){
+    dayCount++;
+    for(const z of zombies){ z.burning=true; z.burnT=60; }
+  }
+  wasNight = isNight;
+  // 僵尸自燃粒子
+  for(const z of zombies){
+    if(z.burning){
+      z.burnT-=dt;
+      if(time%3===0) addParticle(z.x+z.w/2,z.y+Math.random()*z.h,'#ff6020',(Math.random()-0.5)*2,-1.5,18);
+      if(time%4===0) addParticle(z.x+z.w/2,z.y+Math.random()*z.h,'#ffd040',(Math.random()-0.5)*1.5,-2,14);
+      if(z.burnT<=0) z.hp=0;
+    }
+  }
   updateZombies(dt);
 
   // 粒子
@@ -449,6 +468,10 @@ function doMineOrAttack(dt){
         addParticle(z.x+z.w/2,z.y+z.h/2,'#f00',(Math.random()-0.5)*4,-2,15);
         if(z.hp<=0){
           for(let i=0;i<8;i++) addParticle(z.x+z.w/2,z.y+z.h/2,'#5a2a2a',(Math.random()-0.5)*5,(Math.random()-0.5)*5-2,30);
+          // 击杀奖励金币
+          const reward = 1+Math.floor(Math.random()*3);
+          gold += reward;
+          for(let i=0;i<reward;i++) addParticle(z.x+z.w/2,z.y+z.h/2,'#ffd700',(Math.random()-0.5)*4,-3-Math.random()*2,40);
           zombies.splice(zombies.indexOf(z),1);
         }
       }
@@ -737,6 +760,13 @@ function drawZombie(z){
   ctx.fillRect(sx+z.w*0.55,sy+z.h*0.7,z.w*0.45,z.h*0.3);
   ctx.fillStyle='#f00'; ctx.fillRect(sx+z.w*0.25,sy+z.h*0.15,3,3); ctx.fillRect(sx+z.w*0.6,sy+z.h*0.15,3,3);
   if(z.hurtCD>0){ ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.fillRect(sx,sy,z.w,z.h); }
+  // 燃烧效果
+  if(z.burning){
+    ctx.fillStyle='rgba(255,80,0,0.4)'; ctx.fillRect(sx,sy,z.w,z.h);
+    ctx.fillStyle='#ffcc00';
+    const f=Math.sin(time*0.5)*2;
+    ctx.fillRect(sx+z.w*0.2,sy-6+f,4,6); ctx.fillRect(sx+z.w*0.5,sy-8-f,4,8); ctx.fillRect(sx+z.w*0.7,sy-5+f,4,5);
+  }
   // HP
   if(z.hp<z.maxHp){ ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(sx-1,sy-6,z.w+2,4); ctx.fillStyle='#f00'; ctx.fillRect(sx,sy-5,z.w*(z.hp/z.maxHp),2); }
 }
@@ -784,7 +814,7 @@ function updateInfo(dayPhase){
   const h=Math.floor(tot/60), m=tot%60;
   const tStr = isNight ? `夜晚 ${Math.floor((dayPhase-0.5)*200)}%` : `白天 ${Math.floor(dayPhase*200)}%`;
   document.getElementById('info').innerHTML =
-    `HP: ${Math.max(0,player.hp|0)}/${player.maxHp}<br>${tStr}<br>僵尸: ${zombies.length}<br>时间: ${h}m ${m}s<br>模式: ${player.mode==='mine'?'挖掘':'战斗'}<br>${nearBench()?'[近工作台]':''}`;
+    `第 ${dayCount} 天<br>HP: ${Math.max(0,player.hp|0)}/${player.maxHp}<br>💰 金币: ${gold}<br>${tStr}<br>僵尸: ${zombies.length}<br>时间: ${h}m ${m}s<br>模式: ${player.mode==='mine'?'挖掘':'战斗'}<br>${nearBench()?'[近工作台]':''}`;
 }
 function updateCraftMenu(){
   const list=document.getElementById('recipeList');
